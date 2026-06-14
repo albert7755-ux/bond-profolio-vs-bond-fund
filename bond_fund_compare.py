@@ -412,10 +412,18 @@ def calc_ann_ret(tri, dates):
     return float((tri[-1]/tri[0])**(1/years) - 1) if years > 0.01 else 0.0
 
 def period_ret(tri, dates, days):
-    end = pd.to_datetime(dates[-1])
-    mask = pd.to_datetime(dates) >= end - timedelta(days=days)
-    sub = np.array(tri)[mask]
-    return float((sub[-1]-sub[0])/sub[0]) if len(sub) >= 2 else None
+    end          = pd.to_datetime(dates[-1])
+    start_target = end - timedelta(days=days)
+    dates_pd     = pd.to_datetime(dates)
+    mask         = dates_pd >= start_target
+    sub          = np.array(tri)[mask]
+    sub_dates    = dates_pd[mask]
+    if len(sub) < 2:
+        return None
+    # 若實際資料起點比目標起點晚超過 60 天 → 資料不足，顯示 —
+    if (sub_dates.min() - start_target).days > 60:
+        return None
+    return float((sub[-1] - sub[0]) / sub[0])
 
 def fmt_pct(v, bold=False):
     if v is None: return '<span class="neu">—</span>'
