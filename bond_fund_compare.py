@@ -172,7 +172,9 @@ LOCAL_DB = {
     "US458140CA64": {"issuer": "英特爾公司債5",            "coupon": 4.15,  "maturity": "2032"},
 }
 
-FUND_COLORS = ["#9c27b0","#e65100","#2e7d32","#c62828","#00838f","#827717","#37474f"]
+FUND_COLORS     = ["#9c27b0","#e65100","#2e7d32","#c62828","#00838f","#827717","#37474f"]
+BOND_IND_COLORS = ["#00695c","#00838f","#006064","#4527a0","#283593",
+                   "#558b2f","#e65100","#ad1457","#6d4c41","#37474f"]
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Google Sheets 函數
@@ -708,8 +710,6 @@ for i, fs in enumerate(fund_series):
     all_series.append({"name":fs["name"],"dates":sub["date"].values,"tri":fnav,"color":FUND_COLORS[i%len(FUND_COLORS)]})
 
 # 個別債券系列（用青綠色系區分）
-BOND_IND_COLORS = ["#00695c","#00838f","#1565c0","#4527a0","#283593",
-                   "#558b2f","#e65100","#ad1457","#6d4c41","#37474f"]
 for i, br in enumerate(bond_rows):
     bdf = br["df"]
     mask = (bdf["date"] >= ts_start) & (bdf["date"] <= ts_end)
