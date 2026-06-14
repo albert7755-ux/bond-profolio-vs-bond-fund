@@ -210,13 +210,24 @@ def read_bond_sheet(sheet_id):
         try:
             ws = client.open_by_key(sheet_id).get_worksheet(0)
             df = pd.DataFrame(ws.get_all_records())
+            # 日期欄
             if "time" in df.columns:
                 df["date"] = pd.to_datetime(df["time"], unit="s")
             elif "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"])
             else:
                 df["date"] = pd.to_datetime(df.iloc[:, 0])
-            return df[["date","close"]].sort_values("date").reset_index(drop=True)
+            # 價格欄：優先找 close，找不到就用第一個數值欄
+            if "close" not in df.columns:
+                num_cols = [c for c in df.columns
+                            if c not in ("date","time")
+                            and pd.to_numeric(df[c], errors="coerce").notna().sum() > len(df)*0.5]
+                if not num_cols:
+                    raise ValueError(f"找不到價格欄位，現有欄位：{list(df.columns)}")
+                df["close"] = pd.to_numeric(df[num_cols[0]], errors="coerce")
+            else:
+                df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            return df[["date","close"]].dropna().sort_values("date").reset_index(drop=True)
         except Exception as e:
             if "503" in str(e) and attempt < 2: time.sleep(3)
             else: raise e
@@ -344,34 +355,43 @@ def fund_tri(df):
 def build_portfolio_tri(bond_dfs_coupons, weights):
     """
     Blend bond TRIs into a single portfolio TRI.
+    bond_dfs_coupons 和 weights 長度必須一致（只傳入成功載入的債券）。
     Returns (dates_array, tri_array) aligned to common dates.
     """
-    # Build daily-return DataFrames indexed by date
+    if not bond_dfs_coupons or len(bond_dfs_coupons) != len(weights):
+        return None, None
+
+    # 每支債券建立日報酬 Series（欄名唯一：r_0, r_1, ...）
     ret_frames = []
     for i, (df, coupon) in enumerate(bond_dfs_coupons):
         tmp = df.copy()
         tmp["date"] = pd.to_datetime(tmp["date"])
         tmp = tmp.set_index("date").sort_index()
         dc = (coupon / 100) / 365
-        tmp[f"r_{i}"] = tmp["close"].pct_change() + dc
-        ret_frames.append(tmp[[f"r_{i}"]].dropna())
+        col = f"r_{i}"
+        tmp[col] = tmp["close"].pct_change() + dc
+        ret_frames.append(tmp[[col]].dropna())
 
-    # Inner join (all bonds must have data)
-    merged = ret_frames[0]
-    for rf in ret_frames[1:]:
-        merged = merged.join(rf, how="inner")
-
+    # pd.concat 取交集日期（比 .join() 更穩定）
+    merged = pd.concat(ret_frames, axis=1, join="inner")
     if merged.empty:
         return None, None
 
-    w = np.array(weights) / sum(weights)
-    port_ret = sum(merged.iloc[:, i] * w[i] for i in range(len(w)))
+    # 確認欄數與權重數相符
+    cols = merged.columns.tolist()
+    if len(cols) != len(weights):
+        return None, None
+
+    # 加權日報酬（用欄名存取，不用 iloc 避免越界）
+    w = np.array(weights, dtype=float) / sum(weights)
+    port_ret = merged[cols[0]] * w[0]
+    for i in range(1, len(cols)):
+        port_ret = port_ret + merged[cols[i]] * w[i]
 
     tri = [100.0]
     for r in port_ret.values:
         tri.append(tri[-1] * (1 + r))
 
-    # Dates: prepend the day before the first return date as the starting point
     first_date = merged.index[0] - pd.Timedelta(days=1)
     dates = np.concatenate([[first_date], merged.index.values])
     return dates, np.array(tri)
@@ -512,11 +532,14 @@ with st.spinner("載入債券與基金資料..."):
         except Exception as e:
             st.error(f"❌ {fname} 讀取失敗：{e}")
 
-    # Build portfolio TRI
-    port_dates, port_tri = build_portfolio_tri(
-        bond_dfs_coupons,
-        [norm_w[b] for b in selected_bonds]
-    )
+    # Build portfolio TRI（只用成功載入的債券及對應權重）
+    if not load_ok:
+        st.error("❌ 部分債券讀取失敗，請移除後重試")
+        st.stop()
+
+    loaded_bond_names = [r["name"] for r in bond_rows]
+    loaded_weights = [norm_w[b] for b in loaded_bond_names]
+    port_dates, port_tri = build_portfolio_tri(bond_dfs_coupons, loaded_weights)
 
 if not load_ok or port_dates is None:
     st.error("❌ 投組資料合併失敗（可能是選取債券的資料期間無交集）")
