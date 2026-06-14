@@ -515,7 +515,8 @@ with st.spinner("載入債券與基金資料..."):
             bond_rows.append({
                 "name": bname, "coupon": coupon, "maturity": maturity,
                 "price": latest_price, "ytm": ytm, "cy": cy,
-                "weight": norm_w[bname]
+                "weight": norm_w[bname],
+                "df": df,   # 保留原始資料供個別 TRI 使用
             })
             bond_dfs_coupons.append((df, coupon))
         except Exception as e:
@@ -666,6 +667,21 @@ for i, fs in enumerate(fund_series):
         line=dict(color=FUND_COLORS[i % len(FUND_COLORS)], width=2, dash="dot"),
     ))
 
+# 個別債券（細線，半透明感）
+for i, br in enumerate(bond_rows):
+    bdf = br["df"]
+    mask = (bdf["date"] >= ts_start) & (bdf["date"] <= ts_end)
+    sub  = bdf[mask].copy()
+    if sub.empty: continue
+    btri = bond_daily_tri(sub, br["coupon"])
+    btri = btri / btri[0] * 100
+    fig.add_trace(go.Scatter(
+        x=sub["date"], y=btri,
+        name=br["name"][:20],
+        line=dict(color=BOND_IND_COLORS[i % len(BOND_IND_COLORS)], width=1.2, dash="dash"),
+        opacity=0.75,
+    ))
+
 fig.add_hline(y=100, line_dash="dash", line_color="#aaa", line_width=1)
 fig.update_layout(
     title="含息總報酬指數（起始=100）",
@@ -690,6 +706,25 @@ for i, fs in enumerate(fund_series):
     if sub.empty: continue
     fnav = fund_tri(sub)
     all_series.append({"name":fs["name"],"dates":sub["date"].values,"tri":fnav,"color":FUND_COLORS[i%len(FUND_COLORS)]})
+
+# 個別債券系列（用青綠色系區分）
+BOND_IND_COLORS = ["#00695c","#00838f","#1565c0","#4527a0","#283593",
+                   "#558b2f","#e65100","#ad1457","#6d4c41","#37474f"]
+for i, br in enumerate(bond_rows):
+    bdf = br["df"]
+    mask = (bdf["date"] >= ts_start) & (bdf["date"] <= ts_end)
+    sub  = bdf[mask].copy()
+    if sub.empty: continue
+    btri = bond_daily_tri(sub, br["coupon"])
+    btri = btri / btri[0] * 100   # 正規化至起始=100
+    short = br["name"][:16]
+    all_series.append({
+        "name": f"│ {short}",
+        "dates": sub["date"].values,
+        "tri": btri,
+        "color": BOND_IND_COLORS[i % len(BOND_IND_COLORS)],
+        "is_bond_individual": True,
+    })
 
 # Period returns table
 hdr = "<thead><tr><th>期間</th>"
