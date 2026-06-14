@@ -657,6 +657,13 @@ if len(p_tri) < 2:
 # 正規化投組 TRI 到選定起始點=100
 p_tri = p_tri / p_tri[0] * 100
 
+# ── 關鍵：以投組的實際起始日作為所有系列的共同基準 ──
+# 投組因 inner join 可能比 ts_start 晚，用 effective_start 確保所有系列從同一天開始算，
+# period_ret 才不會拿到不同「sub[0]」造成虛假的超高或超低報酬
+effective_start = pd.Timestamp(p_dates[0])
+if effective_start > pd.Timestamp(ts_start):
+    st.info(f"ℹ️ 比較基準日自動調整為 **{effective_start.date()}**（受限於所選債券中最短的資料期間；原設定 {cmp_start}）")
+
 # ─── 走勢圖 ───
 fig = go.Figure()
 fig.add_trace(go.Scatter(
@@ -667,7 +674,7 @@ fig.add_trace(go.Scatter(
 
 for i, fs in enumerate(fund_series):
     fdf = fs["df"]
-    mask = (fdf["date"] >= ts_start) & (fdf["date"] <= ts_end)
+    mask = (fdf["date"] >= effective_start) & (fdf["date"] <= ts_end)
     sub  = fdf[mask].copy()
     if sub.empty: continue
     fnav = fund_tri(sub)
@@ -677,10 +684,10 @@ for i, fs in enumerate(fund_series):
         line=dict(color=FUND_COLORS[i % len(FUND_COLORS)], width=2, dash="dot"),
     ))
 
-# 個別債券（細線，半透明感）
+# 個別債券（細線，半透明感）—— 同樣從 effective_start 開始正規化
 for i, br in enumerate(bond_rows):
     bdf = br["df"]
-    mask = (bdf["date"] >= ts_start) & (bdf["date"] <= ts_end)
+    mask = (bdf["date"] >= effective_start) & (bdf["date"] <= ts_end)
     sub  = bdf[mask].copy()
     if sub.empty: continue
     btri = bond_daily_tri(sub, br["coupon"])
@@ -694,7 +701,7 @@ for i, br in enumerate(bond_rows):
 
 fig.add_hline(y=100, line_dash="dash", line_color="#aaa", line_width=1)
 fig.update_layout(
-    title="含息總報酬指數（起始=100）",
+    title=f"含息總報酬指數（起始=100，基準日 {effective_start.date()}）",
     yaxis_title="總報酬指數（含息，起始=100）",
     hovermode="x unified", height=460,
     legend=dict(orientation="h", yanchor="bottom", y=1.02),
@@ -708,23 +715,24 @@ st.plotly_chart(fig, use_container_width=True)
 st.markdown("**📊 各期間績效比較**")
 periods = [("1個月",30),("3個月",90),("6個月",180),("1年",365),("2年",730),("3年",1095),("5年",1825)]
 
+# all_series 全部用 effective_start 過濾，確保 period_ret 基準一致
 all_series = [{"name":"🏦 自組債券投組","dates":p_dates,"tri":p_tri,"color":"#1565c0"}]
 for i, fs in enumerate(fund_series):
     fdf = fs["df"]
-    mask = (fdf["date"] >= ts_start) & (fdf["date"] <= ts_end)
+    mask = (fdf["date"] >= effective_start) & (fdf["date"] <= ts_end)
     sub  = fdf[mask].copy()
     if sub.empty: continue
     fnav = fund_tri(sub)
     all_series.append({"name":fs["name"],"dates":sub["date"].values,"tri":fnav,"color":FUND_COLORS[i%len(FUND_COLORS)]})
 
-# 個別債券系列（用青綠色系區分）
+# 個別債券系列（用青綠色系區分）—— 同樣從 effective_start 開始正規化
 for i, br in enumerate(bond_rows):
     bdf = br["df"]
-    mask = (bdf["date"] >= ts_start) & (bdf["date"] <= ts_end)
+    mask = (bdf["date"] >= effective_start) & (bdf["date"] <= ts_end)
     sub  = bdf[mask].copy()
     if sub.empty: continue
     btri = bond_daily_tri(sub, br["coupon"])
-    btri = btri / btri[0] * 100   # 正規化至起始=100
+    btri = btri / btri[0] * 100
     short = br["name"][:16]
     all_series.append({
         "name": f"│ {short}",
